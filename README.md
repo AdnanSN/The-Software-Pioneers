@@ -1,1 +1,1 @@
-# capstone
+The software pioneers - Capstone 
