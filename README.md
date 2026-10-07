@@ -4,20 +4,18 @@ A project for area 2, "Custom aggregate functions in SQL" for the [MariaDB stude
 
 ## Functions
 
-Four custom aggregate functions written with MariaDB's `CREATE AGGREGATE FUNCTION`. They work with `GROUP BY` just like `AVG()` or `SUM()`. MySQL has no way to write an aggregate in SQL (you would need a C UDF). PostgreSQL's `CREATE AGGREGATE` ties together separately written functions: one that updates a running state for each row, and optionally one that turns the state into the result. In MariaDB each aggregate is a single routine that loops over the rows of its group.
+Six custom aggregate functions written with MariaDB's `CREATE AGGREGATE FUNCTION`. They work with `GROUP BY` just like `AVG()` or `SUM()`. MySQL has no way to write an aggregate in SQL (you would need a C UDF). PostgreSQL's `CREATE AGGREGATE` ties together separately written functions: one that updates a running state for each row, and optionally one that turns the state into the result. In MariaDB each aggregate is a single routine that loops over the rows of its group.
 
-| Function | Returns |
-|----------|---------|
-| `geo_mean(x)` | Geometric mean |
-| `weighted_geo_mean(x, w)` | Geometric mean where each value counts `w` times |
-| `percentile(x, p)` | The `p`-th percentile (0 to 1) with linear interpolation, so `percentile(x, 0.5)` is the median |
-| `mode_value(x)` | The most frequent value |
+| Function | Returns | Written by | File |
+|----------|---------|------------|------|
+| `geo_mean(x)` | Geometric mean | Adnan S | [adnanaggregatefn.sql](adnanaggregatefn.sql) |
+| `weighted_geo_mean(x, w)` | Geometric mean where each value counts `w` times | Adnan S | [adnanaggregatefn.sql](adnanaggregatefn.sql) |
+| `percentile(x, p)` | The `p`-th percentile (0 to 1) with linear interpolation, so `percentile(x, 0.5)` is the median | Adnan S | [adnanaggregatefn.sql](adnanaggregatefn.sql) |
+| `mode_value(x)` | The most frequent value | Adnan S | [adnanaggregatefn.sql](adnanaggregatefn.sql) |
+| `agg_sum_squares(x)` | Sum of the squares of `x` | Rahmath Shareef | [starter_aggregate_functions.sql](starter_aggregate_functions.sql) |
+| `positive_avg(value)` | Average of the positive values (draft, see [below](#positive_avgvalue)) | Siddhartha Adepu | [aggregate_function.sql](aggregate_function.sql) |
 
-All four ignore NULLs and return NULL for an empty group.
-
-Source: [adnanaggregatefn.sql](adnanaggregatefn.sql) · Tests: [test.sql](test.sql)
-
-Two more aggregates, by Rahmath and Siddhartha, are described under [More functions from the team](#more-functions-from-the-team).
+The four in `adnanaggregatefn.sql` ignore NULLs and return NULL for an empty group, and are covered by [test.sql](test.sql). `agg_sum_squares` and `positive_avg` are described under [More functions from the team](#more-functions-from-the-team).
 
 ### geo_mean(x)
 
@@ -108,12 +106,7 @@ The test script prints each test and ends with `28 / 28 passed`. One test checks
 
 ## More functions from the team
 
-Two more aggregates, written by Rahmath and Siddhartha. They are in their own files and are not installed by `adnanaggregatefn.sql`.
-
-| Function | Returns | Written by | File |
-|----------|---------|------------|------|
-| `agg_sum_squares(x)` | Sum of the squares of `x` | Rahmath Shareef | [starter_aggregate_functions.sql](starter_aggregate_functions.sql) |
-| `positive_avg(value)` | Average of the positive values | Siddhartha Adepu | [aggregate_function.sql](aggregate_function.sql) |
+`agg_sum_squares` (Rahmath Shareef) and `positive_avg` (Siddhartha Adepu) are in their own files and are not installed by `adnanaggregatefn.sql`.
 
 ### agg_sum_squares(x)
 
