@@ -1,48 +1,104 @@
 The software pioneers - Capstone 
-Starter- Custom aggregate functions
+Custom aggregate functions
 
-## geo_mean
+## Functions
 
-`geo_mean(x)` is a custom aggregate function that returns the geometric mean of a column. It is written with MariaDB's `CREATE AGGREGATE FUNCTION`, which MySQL and PostgreSQL don't support.
+Four custom aggregate functions written with MariaDB's `CREATE AGGREGATE FUNCTION`, which MySQL and PostgreSQL don't support. They work with `GROUP BY` just like `AVG()` or `SUM()`.
 
-- NULLs are ignored, like `AVG()`
-- Returns NULL for an empty group or if any value is <= 0
+| Function | Returns |
+|----------|---------|
+| `geo_mean(x)` | Geometric mean |
+| `weighted_geo_mean(x, w)` | Geometric mean where each value counts `w` times |
+| `percentile(x, p)` | The `p`-th percentile (0 to 1) with linear interpolation, so `percentile(x, 0.5)` is the median |
+| `mode_value(x)` | The most frequent value |
+
+All four ignore NULLs and return NULL for an empty group.
+
+Source: [adnanaggregatefn.sql](adnanaggregatefn.sql) · Tests: [test.sql](test.sql)
+
+### geo_mean(x)
+
+- Returns NULL if any value is <= 0
 - Uses a sum of logs so large values don't overflow
 
-Source: [adnanaggregatefn.sql](adnanaggregatefn.sql)
+### weighted_geo_mean(x, w)
+
+Computes `EXP(SUM(w * LN(x)) / SUM(w))`. Useful when some values matter more than others, for example yearly returns weighted by how much money was invested that year.
+
+- Rows where `x` or `w` is NULL, or `w = 0`, are skipped
+- Returns NULL if a used `x` is <= 0, any `w` is negative, or every weight is 0
+- With equal weights it gives the same result as `geo_mean(x)`
+
+### percentile(x, p)
+
+Gives the same answer as MariaDB's `PERCENTILE_CONT(p) WITHIN GROUP (ORDER BY x)`, but that built-in only works as a window function (`OVER (...)`). `percentile` works with `GROUP BY`, so you get one row per group.
+
+- `p` must be between 0 and 1 and the same for every row, otherwise the result is NULL
+- A stored aggregate only sees one row at a time, so the values are collected into a JSON array and sorted with `JSON_TABLE` at the end
+- Values are stored with `CAST(x AS CHAR)` to keep full double precision (`JSON_ARRAY_APPEND` rounds to 9 digits)
+
+### mode_value(x)
+
+- Ties go to the smallest value
+- Takes text, so it works on categories like `'low'`/`'high'` as well as numbers. Numbers are compared as text when breaking a tie (`'10'` sorts before `'9'`)
+- Values are escaped with `JSON_QUOTE`, so commas and quotes inside values are safe
 
 ### Requirements
 
-- MariaDB 10.3.3 or newer (tested on MariaDB 12.3)
+- MariaDB 10.6 or newer, for `JSON_TABLE` (tested on MariaDB 12.3)
 
 ### How to run
 
-Start your MariaDB server, then run the script:
+Start your MariaDB server, then run the two scripts:
 
 ```bash
 mariadb -u root -p < adnanaggregatefn.sql
 ```
 
-The script creates a `capstone_agg` database, the `geo_mean` function and a small `portfolio_returns` demo table, then runs the demo queries and the tests.
+```bash
+mariadb -u root -p < test.sql
+```
 
-To use it afterwards:
+The first script creates a `capstone_agg` database, the four functions and a `portfolio_returns` demo table (yearly growth, money invested and risk rating for three portfolios), then runs the demo queries. The second runs the tests.
+
+To use the functions afterwards:
 
 ```sql
 USE capstone_agg;
 
-SELECT portfolio, AVG(growth), geo_mean(growth)
+SELECT portfolio,
+       geo_mean(growth),
+       weighted_geo_mean(growth, capital),
+       percentile(growth, 0.5),
+       mode_value(risk)
 FROM portfolio_returns
 GROUP BY portfolio;
 ```
 
 ### Expected output
 
-| portfolio | arithmetic_mean | geometric_mean |
-|-----------|-----------------|----------------|
-| alpha     | 1.050000        | 1.032280       |
-| beta      | 1.050000        | 1.050000       |
-| gamma     | 0.900000        | NULL           |
+Summary per portfolio:
 
-Alpha shows why the geometric mean matters: the plain average says 5% growth per year, but the real average growth is about 3.2%. Gamma has a 0 value, so it returns NULL.
+| portfolio | arithmetic_mean | geometric_mean | capital_weighted | median   | p90      | usual_risk |
+|-----------|-----------------|----------------|------------------|----------|----------|------------|
+| alpha     | 1.030000        | 1.018735       | 1.007949         | 1.050000 | 1.190000 | high       |
+| beta      | 1.050000        | 1.049976       | 1.050096         | 1.050000 | 1.057000 | low        |
+| gamma     | 1.020000        | NULL           | NULL             | 1.200000 | 1.420000 | high       |
 
-All five tests at the end of the script should return `pass = 1`.
+- Alpha's plain average says 3% growth per year, but the real average growth is about 1.9%. Weighting by capital drops it to 0.8%, because the bad years had more money in them.
+- Gamma had a year with growth 0 (lost everything), so the geometric means are NULL.
+
+What 1000 invested at the start would be worth at the end (only portfolios with average growth above 1):
+
+| portfolio | avg_growth_pct | value_of_1000 |
+|-----------|----------------|---------------|
+| alpha     | 1.87           | 1097.25       |
+| beta      | 5.00           | 1215.40       |
+
+The test script prints each test and ends with `28 / 28 passed`. One test checks `percentile` against the built-in `PERCENTILE_CONT` for every portfolio at five different percentiles.
+
+### Limitations
+
+- MariaDB doesn't allow a stored aggregate to be written out inside `HAVING`. Give it an alias in the `SELECT` and use the alias in `HAVING` instead (see demo query 2).
+- Stored aggregates can't be used as window functions (`OVER (...)`).
+- `percentile` and `mode_value` keep every value of the group in memory as text, so they are slower than the built-ins on very large groups.
