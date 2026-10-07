@@ -1,9 +1,10 @@
-The software pioneers - Capstone 
-Custom aggregate functions
+A project for area 2, "Custom aggregate functions in SQL" for the [MariaDB student database projects, 2026-09](https://mariadb.org/bachelor_hackathon_2026-09/).
+
+# The Software Pioneers: custom aggregate functions
 
 ## Functions
 
-Four custom aggregate functions written with MariaDB's `CREATE AGGREGATE FUNCTION`, which MySQL and PostgreSQL don't support. They work with `GROUP BY` just like `AVG()` or `SUM()`.
+Four custom aggregate functions written with MariaDB's `CREATE AGGREGATE FUNCTION`. They work with `GROUP BY` just like `AVG()` or `SUM()`. MySQL has no way to write an aggregate in SQL (you would need a C UDF). PostgreSQL's `CREATE AGGREGATE` ties together separately written functions: one that updates a running state for each row, and optionally one that turns the state into the result. In MariaDB each aggregate is a single routine that loops over the rows of its group.
 
 | Function | Returns |
 |----------|---------|
@@ -15,6 +16,8 @@ Four custom aggregate functions written with MariaDB's `CREATE AGGREGATE FUNCTIO
 All four ignore NULLs and return NULL for an empty group.
 
 Source: [adnanaggregatefn.sql](adnanaggregatefn.sql) · Tests: [test.sql](test.sql)
+
+Two more aggregates, by Rahmath and Siddhartha, are described under [More functions from the team](#more-functions-from-the-team).
 
 ### geo_mean(x)
 
@@ -102,3 +105,41 @@ The test script prints each test and ends with `28 / 28 passed`. One test checks
 - MariaDB doesn't allow a stored aggregate to be written out inside `HAVING`. Give it an alias in the `SELECT` and use the alias in `HAVING` instead (see demo query 2).
 - Stored aggregates can't be used as window functions (`OVER (...)`).
 - `percentile` and `mode_value` keep every value of the group in memory as text, so they are slower than the built-ins on very large groups.
+
+## More functions from the team
+
+Two more aggregates, written by Rahmath and Siddhartha. They are in their own files and are not installed by `adnanaggregatefn.sql`.
+
+| Function | Returns | Written by | File |
+|----------|---------|------------|------|
+| `agg_sum_squares(x)` | Sum of the squares of `x` | Rahmath Shareef | [starter_aggregate_functions.sql](starter_aggregate_functions.sql) |
+| `positive_avg(value)` | Average of the positive values | Siddhartha Adepu | [aggregate_function.sql](aggregate_function.sql) |
+
+### agg_sum_squares(x)
+
+- Adds up `x * x` over the group and returns a `DECIMAL(20,2)`
+- Unlike `SUM()`, it doesn't skip NULLs: one NULL in the group makes the result NULL. With no rows it returns 0 rather than NULL
+- The same file also shows built-in aggregates filtered with `HAVING` and two window functions (a running total and a rank inside each product), then calls `agg_sum_squares` per product
+- Tested on MariaDB 12.3.3 against a `capstone_test.sales` table with `id`, `product` and `amount` columns. That table isn't in this repository yet, so the file can't be run from here
+
+### positive_avg(value)
+
+- Meant to return the average of the positive values in the group as a `DECIMAL(10,2)`, or 0 when there are none
+- Still a draft: it has no `FETCH GROUP NEXT ROW` loop or `NOT FOUND` handler yet, which every stored aggregate needs, so MariaDB won't create it as written
+
+## Files
+
+| File | What it is |
+|------|------------|
+| [adnanaggregatefn.sql](adnanaggregatefn.sql) | The four aggregates, the `portfolio_returns` demo table and the demo queries |
+| [test.sql](test.sql) | The 28 tests. Run it after `adnanaggregatefn.sql` |
+| [starter_aggregate_functions.sql](starter_aggregate_functions.sql) | `agg_sum_squares`, plus examples of built-in aggregates and window functions |
+| [aggregate_function.sql](aggregate_function.sql) | The `positive_avg` draft |
+
+## Team
+
+The Software Pioneers:
+
+- Adnan S: `geo_mean`, `weighted_geo_mean`, `percentile` and `mode_value`, with the demo and the tests
+- Rahmath Shareef: `agg_sum_squares` and the examples of built-in aggregates and window functions
+- Siddhartha Adepu: `positive_avg`
