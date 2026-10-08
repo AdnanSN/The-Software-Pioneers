@@ -104,7 +104,9 @@ BEGIN
     IF total IS NULL OR total = 0 THEN
       RETURN NULL;
     END IF;
-    RETURN 2 * weighted_sum / (n * total) - (n + 1) / n;
+    -- 1e0 makes this a DOUBLE division: (n + 1) / n on integers is a DECIMAL rounded
+    -- by div_precision_increment, which put gini(1,2,3) off by 3e-10.
+    RETURN 2 * weighted_sum / (n * total) - (n + 1e0) / n;
   END;
 
   LOOP
@@ -203,6 +205,10 @@ UNION ALL
 SELECT 'gini 1,2,3,4 = 0.25',
        ABS(gini_coefficient(v) - 0.25) < 1e-9
   FROM (SELECT 1 AS v UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4) t
+UNION ALL
+SELECT 'gini 1,2,3 = 2/9 to full double precision',
+       ABS(gini_coefficient(v) - 2e0 / 9) < 1e-15
+  FROM (SELECT 1 AS v UNION ALL SELECT 2 UNION ALL SELECT 3) t
 UNION ALL
 SELECT 'gini negative -> NULL',
        gini_coefficient(v) IS NULL

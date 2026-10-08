@@ -8,7 +8,9 @@
 --     below it. There is no legal price ceiling like the Indian MRP.
 --  2. Consumer prices are gross (include VAT). VAT is 19% for clothing and cosmetics, flat:
 --     there is no price slab, so a discount can never move an item into another tax rate.
---  3. Goods sold by weight or volume must show a unit price (Grundpreis), here per 100 g / 100 ml.
+--  3. Goods sold by weight or volume must show a unit price (Grundpreis) per 1 kg / 1 l
+--     (PAngV sections 4 and 5; the per-100 g / 100 ml option ended on 28.05.2022).
+--     Goods under 10 g / 10 ml are exempt (section 4(3) no. 1), e.g. a 3.5 g lipstick.
 --  4. When a shop advertises "was X, now Y", X must be the lowest price charged in the 30 days
 --     before the reduction (EU Omnibus rules, implemented in PAngV section 11). An inflated
 --     "was" price is called a Mondpreis ("moon price").
@@ -139,7 +141,8 @@ SELECT sl.line_id, sl.sale_date, sl.quantity, sl.is_sample,
        IF(sl.is_sample, 0, ROUND(sl.quantity * sl.price_charged / (1 + c.vat_rate), 2)) AS net_revenue,
        IF(sl.is_sample, 0, ROUND(sl.quantity * sl.price_charged, 2)
                          - ROUND(sl.quantity * sl.price_charged / (1 + c.vat_rate), 2)) AS vat_amount,
-       IF(c.requires_grundpreis, ROUND(sl.price_charged / p.net_content * 100, 2), NULL) AS grundpreis_per_100,
+       IF(c.requires_grundpreis AND p.net_content >= 10,
+          ROUND(sl.price_charged / p.net_content * 1000, 2), NULL)                   AS grundpreis_per_kg_l,
        IF(p.uvp IS NULL, NULL, ROUND((sl.price_charged / p.uvp - 1) * 100, 1))          AS vs_uvp_pct
   FROM sales_lines_de sl
   JOIN products_de p    ON p.product_id  = sl.product_id
@@ -176,7 +179,7 @@ SELECT x.*,
 
 -- 1. Every line: VAT carved out of the gross price, unit price (Grundpreis), position vs UVP.
 SELECT line_id, product_name, sale_date, quantity, price_charged, vs_uvp_pct,
-       gross_total, net_revenue, vat_amount, grundpreis_per_100, unit_type
+       gross_total, net_revenue, vat_amount, grundpreis_per_kg_l, unit_type
   FROM v_de_lines
  ORDER BY line_id;
 
@@ -189,13 +192,13 @@ SELECT line_id, product_name, sale_date, price_charged,
   FROM v_de_price_claims;
 
 -- 3. FINDING B: how far apart are the arithmetic and the harmonic average unit price?
---    Harmonic = the unit price you really pay per 100 g / 100 ml if you spend the same
+--    Harmonic = the unit price you really pay per kg / l if you spend the same
 --    money on every product.
 SELECT unit_type,
        COUNT(*)                                       AS products,
-       ROUND(AVG(gp), 2)                              AS arithmetic_avg_per_100,
-       ROUND(retail_agg.harmonic_mean(gp), 2)         AS harmonic_avg_per_100
-  FROM (SELECT unit_type, uvp / net_content * 100 AS gp
+       ROUND(AVG(gp), 2)                              AS arithmetic_avg_per_kg_l,
+       ROUND(retail_agg.harmonic_mean(gp), 2)         AS harmonic_avg_per_kg_l
+  FROM (SELECT unit_type, uvp / net_content * 1000 AS gp
           FROM products_de WHERE net_content IS NOT NULL AND uvp IS NOT NULL) t
  GROUP BY unit_type;
 
@@ -240,8 +243,12 @@ SELECT 'net + VAT = gross on every line',
        MAX(ABS(net_revenue + vat_amount - gross_total)) < 0.001
   FROM v_de_lines
 UNION ALL
-SELECT 'Grundpreis of lipstick at 18.99 for 3.5 g = 542.57 per 100 g',
-       grundpreis_per_100 = 542.57
+SELECT 'Grundpreis of foundation at 24.99 for 30 ml = 833.00 per litre',
+       grundpreis_per_kg_l = 833.00
+  FROM v_de_lines WHERE line_id = 9
+UNION ALL
+SELECT 'lipstick of 3.5 g is under 10 g: no Grundpreis required',
+       grundpreis_per_kg_l IS NULL
   FROM v_de_lines WHERE line_id = 4
 UNION ALL
 SELECT 'free tester: no revenue, no VAT',
@@ -263,7 +270,7 @@ UNION ALL
 SELECT 'harmonic average never exceeds arithmetic average',
        MIN(arith >= harm) = 1
   FROM (SELECT AVG(gp) AS arith, retail_agg.harmonic_mean(gp) AS harm
-          FROM (SELECT unit_type, uvp / net_content * 100 AS gp
+          FROM (SELECT unit_type, uvp / net_content * 1000 AS gp
                   FROM products_de WHERE net_content IS NOT NULL) t
          GROUP BY unit_type) u
 UNION ALL
