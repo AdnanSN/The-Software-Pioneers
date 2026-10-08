@@ -1,0 +1,58 @@
+name: SQL tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: MariaDB ${{ matrix.mariadb }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        # 10.6: oldest supported (JSON_TABLE), 11.4: long-term support, 12.3: developed on
+        mariadb: ['10.6', '11.4', '12.3']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # A throwaway server inside the job: no port is published, so an empty root password is fine.
+      # The repository is mounted read-only at /repo so the client can `source` the scripts.
+      - name: Start MariaDB ${{ matrix.mariadb }}
+        run: |
+          docker run --detach --name mariadb \
+            --env MARIADB_ALLOW_EMPTY_ROOT_PASSWORD=1 \
+            --volume "$GITHUB_WORKSPACE:/repo:ro" \
+            mariadb:${{ matrix.mariadb }}
+          for i in $(seq 1 60); do
+            if docker exec mariadb healthcheck.sh --connect --innodb_initialized; then
+              docker exec mariadb mariadb --user=root --execute="SELECT VERSION()"
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs mariadb
+          exit 1
+
+      # The client stops with a non-zero exit code at the first SQL error, which fails the step.
+      - name: Install and test everything (run_all.sql)
+        run: |
+          docker exec --workdir /repo mariadb \
+            sh -c 'mariadb --user=root --table < run_all.sql' | tee run_all.out
+          bash .github/scripts/check-results.sh run_all.out
+
+      - name: Compare with and without (with_vs_without.sql, 1 timed run)
+        run: |
+          docker exec --workdir /repo mariadb \
+            sh -c '{ echo "SET @reps = 1;"; cat with_vs_without.sql; } | mariadb --user=root --table' | tee with_vs_without.out
+          bash .github/scripts/check-results.sh with_vs_without.out
+
+      - name: Keep the output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: output-mariadb-${{ matrix.mariadb }}
+          path: '*.out'
