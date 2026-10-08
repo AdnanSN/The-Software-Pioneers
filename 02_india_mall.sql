@@ -308,4 +308,4 @@ SELECT 'net + GST = total on every line (within 1 paisa)',
 UNION ALL
 SELECT 'tax over-stated by the MRP-based rule = 479.56 on the two crossing lines',
        ABS(SUM(ROUND(quantity * billed_unit_price * gst_rate_if_taxed_on_list / (1 + gst_rate_if_taxed_on_list), 2) - gst_amount) - 479.56) < 0.005
-  FROM v_line_final WHERE threshold IS NOT NULL AND gst_rate_if_taxed_on_list <> gst_rate;test
+  FROM v_line_final WHERE threshold IS NOT NULL AND gst_rate_if_taxed_on_list <> gst_rate;

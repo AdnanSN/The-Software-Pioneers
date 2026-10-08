@@ -1,14 +1,14 @@
-CREATE DATABASE IF NOT EXISTS mall_retail;
-USE mall_retail;
+-- shopping_mall__aggregate_functions.sql
+-- First version of the Indian mall example: discounts stacked in three columns, one GST slab
+-- (the pre-22.09.2025 one), and the welford_stddev aggregate. 02_india_mall.sql is the reworked
+-- version. This file is standalone and uses its own database so the two never share tables.
 
-ALTER TABLE products
-  ADD CONSTRAINT fk_products_category
-  FOREIGN KEY (category_id) REFERENCES categories(category_id);
+CREATE DATABASE IF NOT EXISTS mall_retail_v1;
+USE mall_retail_v1;
 
-ALTER TABLE sales_lines
-  ADD CONSTRAINT fk_sales_product
-  FOREIGN KEY (product_id) REFERENCES products(product_id);
-  
+DROP VIEW IF EXISTS sales_final;
+DROP VIEW IF EXISTS sales_taxed;
+DROP VIEW IF EXISTS sales_priced;
 DROP TABLE IF EXISTS sales_lines;
 DROP TABLE IF EXISTS products;
 DROP TABLE IF EXISTS categories;
@@ -32,10 +32,11 @@ INSERT INTO categories (name, mrp_required, gst_low_rate, gst_high_rate, gst_thr
 
 CREATE TABLE products (
     product_id   INT PRIMARY KEY AUTO_INCREMENT,
-    category_id  INT NOT NULL REFERENCES categories(category_id),
+    category_id  INT NOT NULL,
     name         VARCHAR(100) NOT NULL,
     mrp          DECIMAL(10,2),              -- NULL where not legally required
-    cost_price   DECIMAL(10,2) NOT NULL
+    cost_price   DECIMAL(10,2) NOT NULL,
+    FOREIGN KEY (category_id) REFERENCES categories(category_id)
 );
 
 INSERT INTO products (category_id, name, mrp, cost_price) VALUES
@@ -51,14 +52,15 @@ INSERT INTO products (category_id, name, mrp, cost_price) VALUES
 
 CREATE TABLE sales_lines (
     line_id        INT PRIMARY KEY AUTO_INCREMENT,
-    product_id     INT NOT NULL REFERENCES products(product_id),
+    product_id     INT NOT NULL,
     sale_date      DATE NOT NULL,
     quantity       INT NOT NULL,
     unit_mrp_used  DECIMAL(10,2),       -- price actually billed on, before discount (loose items: entered manually)
     discount_pct_1 DECIMAL(5,2) DEFAULT 0,  -- e.g. festival sale
     discount_pct_2 DECIMAL(5,2) DEFAULT 0,  -- e.g. clearance, stacked on top
     discount_pct_3 DECIMAL(5,2) DEFAULT 0,  -- e.g. loyalty, stacked on top
-    is_sample      BOOLEAN DEFAULT FALSE    -- free tester, zero revenue
+    is_sample      BOOLEAN DEFAULT FALSE,   -- free tester, zero revenue
+    FOREIGN KEY (product_id) REFERENCES products(product_id)
 );
 
 INSERT INTO sales_lines (product_id, sale_date, quantity, unit_mrp_used, discount_pct_1, discount_pct_2, discount_pct_3, is_sample) VALUES
@@ -130,6 +132,10 @@ SELECT product_name, unit_mrp_used, effective_unit_price,
        (unit_mrp_used >= gst_threshold) <> (effective_unit_price >= COALESCE(gst_threshold, 999999)) AS slab_crossed
 FROM sales_final
 WHERE gst_threshold IS NOT NULL;
+
+-- welford_stddev(x): sample standard deviation in one pass (Welford's update), NULL below 2 values.
+-- It gives the same answer as the built-in STDDEV_SAMP(), shown side by side below, so in real
+-- code use the built-in: this one is here to show how a running-state aggregate is written.
 DROP FUNCTION IF EXISTS welford_stddev;
 DELIMITER //
 CREATE AGGREGATE FUNCTION welford_stddev(x DOUBLE) RETURNS DOUBLE DETERMINISTIC
@@ -157,7 +163,8 @@ DELIMITER ;
 -- Discount consistency per category: high stddev = erratic/uncontrolled markdowns
 SELECT category_name,
        ROUND(AVG(effective_discount_pct), 2) AS avg_discount_pct,
-       ROUND(welford_stddev(effective_discount_pct), 2) AS discount_stddev
+       ROUND(welford_stddev(effective_discount_pct), 2) AS discount_stddev,
+       ROUND(STDDEV_SAMP(effective_discount_pct), 2) AS builtin_stddev_samp
 FROM (
     SELECT category_name,
            ROUND(100 * (1 - effective_unit_price / unit_mrp_used), 2) AS effective_discount_pct
